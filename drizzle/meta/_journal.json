@@ -15,6 +15,13 @@
       "when": 1779939651894,
       "tag": "0001_cultured_raider",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1779996091568,
+      "tag": "0002_faulty_ken_ellis",
+      "breakpoints": true
     }
   ]
 }

@@ -1,20 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs'; // <-- NEW IMPORT
 import { like, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/expo-sqlite';
 import { openDatabaseSync } from 'expo-sqlite';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
-import { inventory } from '../../src/db/schema';
+import { inventory, sales } from '../../src/db/schema';
 
 // Initialize Database
 const expoDb = openDatabaseSync('vapeshop.db');
@@ -43,13 +44,15 @@ export default function ChatbotScreen() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      text: "Magandang araw, Vann! 👋 I am your Vault Assistant. How can I help manage the shop today?\n\nTry commands like:\n💨 'add [category] [name] [qty] [price]'\n💨 'delete [name]'\n💨 'stocks'\n\nCategories you can use: v1, v2, v3, v1pods, v2pods, v3pods, juice, misc",
+      text: "Magandang araw, Vann! 👋 I am your Vault Assistant. How can I help manage the shop today?\n\nTry commands like:\n💨 'add [category] [name] [qty] [price]'\n💨 'delete [name]'\n💨 'stocks'\n💨 'bestsellers'\n\nCategories you can use: v1, v2, v3, v1pods, v2pods, v3pods, juice, misc",
       sender: 'bot'
     }
   ]);
   const scrollViewRef = useRef<ScrollView>(null);
-
   
+  // DYNAMICALLY GRAB THE TAB BAR HEIGHT TO PREVENT THE BLACK GAP
+  const tabBarHeight = useBottomTabBarHeight();
+
   const scrollToBottom = () => {
     setTimeout(() => {
       scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -68,15 +71,20 @@ export default function ChatbotScreen() {
     const text = input.trim();
     const lowerText = text.toLowerCase();
 
-    
+    // COMMAND: ADD
     if (lowerText.startsWith('add')) {
-      
       const match = text.match(/^add\s+(v1|v2|v3|v1pods|v2pods|v3pods|juice|misc)\s+(.+)\s+(\d+)\s+(\d+(\.\d+)?)$/i);
       
       if (match) {
         const rawCategory = match[1].toLowerCase();
-        const itemCategory = CATEGORY_MAP[rawCategory] || 'Misc';
-        const itemName = match[2].trim();
+        const itemCategory = CATEGORY_MAP[rawCategory] || 'Misc';  
+        const rawItemName = match[2].trim();   
+        const itemName = rawItemName
+          .toLowerCase()
+          .split(' ')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ');
+
         const itemQty = parseInt(match[3], 10);
         const itemPrice = parseFloat(match[4]);
 
@@ -97,7 +105,7 @@ export default function ChatbotScreen() {
       return;
     }
 
-    // COMMAND: DELETE (e.g., "delete Oxva Pro")
+    // COMMAND: DELETE
     if (lowerText.startsWith('delete') || lowerText.startsWith('remove')) {
       const match = text.match(/^(?:delete|remove)\s+(.+)$/i);
       
@@ -149,6 +157,43 @@ export default function ChatbotScreen() {
       return;
     }
 
+    // COMMAND: BESTSELLERS
+    if (lowerText === 'bestsellers' || lowerText === 'top') {
+      try {
+        const topItems = await db
+          .select({
+            name: sales.itemName,
+            totalSold: sql<number>`SUM(${sales.quantity})`,
+            totalRevenue: sql<number>`SUM(${sales.amount})`
+          })
+          .from(sales)
+          .where(sql`${sales.itemName} != 'Unknown Item'`) 
+          .groupBy(sales.itemName)
+          .orderBy(sql`SUM(${sales.quantity}) DESC`)
+          .limit(5);
+
+        if (topItems.length === 0) {
+          addMessage('📊 No itemized sales data available yet. Start logging specific items to see your leaderboard!', 'bot');
+          return;
+        }
+
+        let responseText = '🔥 **ALL-TIME BEST SELLERS** 🔥\n\n';
+        
+        topItems.forEach((item, index) => {
+          const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '▪️';
+          responseText += `${medal} **${item.name}**\n`;
+          responseText += `   📦 ${item.totalSold} sold  |  💰 ₱${item.totalRevenue.toLocaleString()}\n\n`;
+        });
+
+        addMessage(responseText.trim(), 'bot');
+
+      } catch (error) {
+        console.error('Best sellers query failed:', error);
+        addMessage('❌ Failed to retrieve best sellers. Ensure your database is updated.', 'bot');
+      }
+      return;
+    }
+
     // DEFAULT FALLBACK
     addMessage("🤔 I didn't quite catch that command.\n\nTry:\n💨 'add [category] [name] [qty] [price]'\n💨 'delete [name]'\n💨 'stocks'", 'bot');
   };
@@ -167,10 +212,13 @@ export default function ChatbotScreen() {
 
   return (
     <View style={styles.container}>
+      {/* PERFECTED KEYBOARD AVOIDING VIEW */}
       <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 70} 
+        style={styles.container} 
+        // 1. Force 'height' on Android so it physically shrinks the view above the keyboard
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+        // 2. Apply the Tab Bar offset to BOTH platforms, adding a slight buffer for Android's status bar
+        keyboardVerticalOffset={Platform.OS === 'ios' ? tabBarHeight : tabBarHeight + 0} 
       >
         
         <View style={styles.header}>
@@ -193,6 +241,8 @@ export default function ChatbotScreen() {
           contentContainerStyle={styles.chatContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled" 
+          // MESSENGER-LIKE BEHAVIOR: Swipe down to dismiss keyboard smoothly
+          keyboardDismissMode="on-drag" 
         >
           {messages.map((msg) => (
             <View 
@@ -342,7 +392,8 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     padding: 16,
-    paddingBottom: Platform.OS === 'ios' ? 32 : 16,
+    // Removed the dynamic Platform padding here because the KeyboardAvoidingView now perfectly aligns with the tab bar natively.
+    paddingBottom: 16,
     backgroundColor: '#0A0A0C',
     borderTopWidth: 1,
     borderTopColor: '#1F1F22',

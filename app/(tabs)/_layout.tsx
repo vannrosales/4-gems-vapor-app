@@ -6,13 +6,13 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerShown: false, // We will build custom headers in the screens
-        tabBarActiveTintColor: '#10b981', // Emerald green
-        tabBarInactiveTintColor: '#71717a', // Zinc 500
+        headerShown: false, 
+        tabBarActiveTintColor: '#10b981', 
+        tabBarInactiveTintColor: '#71717a', 
         tabBarStyle: {
-          backgroundColor: '#09090b', // Deepest dark background
+          backgroundColor: '#09090b', 
           borderTopWidth: 1,
-          borderTopColor: '#27272a', // Subtle border
+          borderTopColor: '#27272a', 
           height: Platform.OS === 'ios' ? 85 : 65,
           paddingBottom: Platform.OS === 'ios' ? 30 : 10,
           paddingTop: 10,
@@ -56,6 +56,15 @@ export default function TabLayout() {
           title: 'Settings',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="settings-sharp" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="chatbot"
+        options={{
+          title: 'Chatbot',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="chatbubbles" size={size} color={color} />
           ),
         }}
       />
