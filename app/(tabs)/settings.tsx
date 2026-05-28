@@ -9,7 +9,7 @@ import ViewShot from 'react-native-view-shot';
 import { inventory, sales } from '../../src/db/schema';
 
 const { width } = Dimensions.get('window');
-const STORY_WIDTH = width; // Keeps the width perfect for phones
+const STORY_WIDTH = width; 
 
 export default function SettingsScreen() {
   const [db, setDb] = useState<any | null>(null);
@@ -24,7 +24,7 @@ export default function SettingsScreen() {
         const d = drizzle(expoDb);
         if (mounted) setDb(d);
         
-        // Pre-fetch stocks so the off-screen template is ready to be captured
+        
         const stocks = await d.select().from(inventory).where(sql`${inventory.stock} > 0`);
         if (mounted) setAvailableStocks(stocks);
       } catch (e) {
@@ -34,7 +34,7 @@ export default function SettingsScreen() {
     return () => { mounted = false; };
   }, []);
 
-  // --- 1. Share Available Stocks (IMAGE EXPORT) ---
+  
   const handleShareStocksToStory = async () => {
     try {
       if (!db || availableStocks.length === 0) {
@@ -42,7 +42,7 @@ export default function SettingsScreen() {
         return;
       }
 
-      // Briefly wait to ensure the ViewShot is fully rendered with all items
+      
       setTimeout(async () => {
         if (storyRef.current && storyRef.current.capture) {
           const uri = await storyRef.current.capture();
@@ -65,7 +65,7 @@ export default function SettingsScreen() {
     }
   };
 
-  // --- 2. Share to Social Media Milestone Logic (TEXT EXPORT) ---
+  
   const handleShareMilestone = async () => {
     try {
       if (!db) {
