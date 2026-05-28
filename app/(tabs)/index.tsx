@@ -3,19 +3,17 @@ import { drizzle } from 'drizzle-orm/expo-sqlite';
 import { openDatabaseSync } from 'expo-sqlite';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  Dimensions,
+  Image,
   Platform,
-  RefreshControl // 1. Import RefreshControl
-  ,
-
-
-
-
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   View
 } from 'react-native';
+import { LineChart } from 'react-native-chart-kit'; // <-- 1. Import LineChart
 import { sales } from '../../src/db/schema';
 
 // Initialize Database
@@ -24,6 +22,7 @@ const db = drizzle(expoDb);
 
 // Business Settings
 const SAVINGS_PERCENTAGE = 0.20; 
+const screenWidth = Dimensions.get("window").width;
 
 // Helpers
 const getTodayString = () => new Date().toISOString().split('T')[0];
@@ -41,7 +40,10 @@ export default function HomeScreen() {
   const [totalSavings, setTotalSavings] = useState(0);
   const [monthlyAnalytics, setMonthlyAnalytics] = useState<{ month: string; total: number }[]>([]);
   
-  // 2. Add refreshing state
+  // NEW: States for all-time stats
+  const [allTimeIncome, setAllTimeIncome] = useState(0);
+  const [allTimeSales, setAllTimeSales] = useState(0);
+
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
@@ -66,11 +68,20 @@ export default function HomeScreen() {
       .where(sql`strftime('%Y-%m', ${sales.createdAt}) = ${yearMonth}`);
     setMonthlyTotal(monthResult[0]?.total || 0);
 
+    // UPDATED: Fetching both sum (income) and count (total sales)
     const allTimeResult = await db
-      .select({ total: sql<number>`SUM(${sales.amount})` })
+      .select({ 
+        total: sql<number>`SUM(${sales.amount})`,
+        count: sql<number>`COUNT(${sales.id})`
+      })
       .from(sales);
-    const allTimeIncome = allTimeResult[0]?.total || 0;
-    setTotalSavings(allTimeIncome * SAVINGS_PERCENTAGE);
+      
+    const totalInc = allTimeResult[0]?.total || 0;
+    const totalSls = allTimeResult[0]?.count || 0;
+    
+    setAllTimeIncome(totalInc);
+    setAllTimeSales(totalSls);
+    setTotalSavings(totalInc * SAVINGS_PERCENTAGE);
 
     const analyticsResult = await db
       .select({
@@ -84,21 +95,18 @@ export default function HomeScreen() {
     setMonthlyAnalytics(analyticsResult);
   };
 
-  // 3. Create the onRefresh handler
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchDashboardData(); // Wait for fresh data
-    setRefreshing(false); // Stop the spinner
+    await fetchDashboardData(); 
+    setRefreshing(false); 
   }, []);
 
-  const maxMonthlyIncome = monthlyAnalytics.length > 0 
-    ? Math.max(...monthlyAnalytics.map(a => a.total)) 
-    : 1;
-
-  // Format date for the modern header
   const todayDateFormatted = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric'
   });
+
+  // Reverse data for the chart so it reads left-to-right (oldest to newest)
+  const chartData = [...monthlyAnalytics].reverse();
 
   return (
     <View style={styles.container}>
@@ -106,30 +114,35 @@ export default function HomeScreen() {
       <ScrollView 
         showsVerticalScrollIndicator={false} 
         contentContainerStyle={styles.scrollContent}
-        // 4. Attach RefreshControl to the ScrollView
         refreshControl={
           <RefreshControl 
             refreshing={refreshing} 
             onRefresh={onRefresh} 
-            tintColor="#10b981" // iOS spinner color
-            colors={['#10b981']} // Android spinner color
-            progressBackgroundColor="#111113" // Android spinner background
+            tintColor="#10b981" 
+            colors={['#10b981']} 
+            progressBackgroundColor="#111113" 
           />
         }
       >
         
-        {/* Ultra-Minimal Header */}
-        <View style={styles.header}>
-          <View>
+        {/* Tarsi-Style Hero Banner with Mascot */}
+        <View style={styles.heroBanner}>
+          <View style={styles.heroTextContent}>
             <Text style={styles.dateText}>{todayDateFormatted}</Text>
-            <Text style={styles.greetingText}>Magandang araw, Ginoo 👋</Text>
+            <Text style={styles.greetingText}>Magandang araw, Vann 👋</Text>
+            <Text style={styles.heroSubtext}>Ready to crush today's goals?</Text>
           </View>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>V</Text>
+          
+          <View style={styles.mascotContainer}>
+            <Image 
+              source={require('../../assets/images/mascot.png')}
+              style={styles.mascotImage}
+              resizeMode="contain"
+            />
           </View>
         </View>
 
-        {/* Massive Focus Number (Bryl Lim Style) */}
+        {/* Massive Focus Number */}
         <View style={styles.balanceContainer}>
           <Text style={styles.balanceLabel}>This Month's Revenue</Text>
           <Text style={styles.balanceAmount} numberOfLines={1} adjustsFontSizeToFit>
@@ -142,7 +155,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Bento Grid Stats */}
+        {/* Sales Today & Vault */}
         <View style={styles.bentoGrid}>
           <View style={[styles.bentoCard, { marginRight: 6 }]}>
             <View style={styles.bentoHeader}>
@@ -167,27 +180,62 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Sleek Analytics */}
+        {/* NEW: All-Time Overview */}
+        <Text style={styles.sectionTitle}>All-Time Overview</Text>
+        <View style={styles.bentoGrid}>
+          <View style={[styles.bentoCard, { marginRight: 6, minHeight: 120 }]}>
+            <View style={styles.bentoBottom}>
+              <Text style={styles.bentoValue}>₱{allTimeIncome.toLocaleString()}</Text>
+              <Text style={styles.bentoLabel}>Total Income</Text>
+            </View>
+          </View>
+
+          <View style={[styles.bentoCard, { marginLeft: 6, minHeight: 120 }]}>
+            <View style={styles.bentoBottom}>
+              <Text style={styles.bentoValue}>{allTimeSales.toLocaleString()}</Text>
+              <Text style={styles.bentoLabel}>Total Items Sold</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Sleek Line Chart Analytics */}
         <View style={styles.analyticsSection}>
-          <Text style={styles.sectionTitle}>Performance</Text>
-          <View style={styles.analyticsCard}>
-            {monthlyAnalytics.length === 0 ? (
+          <Text style={styles.sectionTitle}>Revenue Trend</Text>
+          <View style={styles.chartCard}>
+            {chartData.length === 0 ? (
               <Text style={styles.emptyStateText}>Awaiting data...</Text>
             ) : (
-              monthlyAnalytics.map((data, index) => {
-                const barWidth = `${(data.total / maxMonthlyIncome) * 100}%`;
-                return (
-                  <View key={index} style={styles.analyticsRow}>
-                    <View style={styles.analyticsTextRow}>
-                      <Text style={styles.analyticsMonth}>{formatMonthName(data.month)}</Text>
-                      <Text style={styles.analyticsAmount}>₱{data.total.toLocaleString()}</Text>
-                    </View>
-                    <View style={styles.barBackground}>
-                      <View style={[styles.barFill, { width: barWidth as any }]} />
-                    </View>
-                  </View>
-                );
-              })
+              <LineChart
+                data={{
+                  labels: chartData.map(d => formatMonthName(d.month).split(' ')[0]), // Extracts just the month name e.g., "May"
+                  datasets: [{ data: chartData.map(d => d.total) }]
+                }}
+                width={screenWidth - 48} // 24 padding on left and right
+                height={220}
+                yAxisLabel="₱"
+                yAxisSuffix=""
+                yAxisInterval={1} 
+                chartConfig={{
+                  backgroundColor: '#0A0A0C',
+                  backgroundGradientFrom: '#0A0A0C',
+                  backgroundGradientTo: '#0A0A0C',
+                  decimalPlaces: 0,
+                  color: (opacity = 1) => `rgba(16, 185, 129, ${opacity})`, // Emerald green line
+                  labelColor: (opacity = 1) => `rgba(161, 161, 170, ${opacity})`, // Zinc-400 text
+                  style: { borderRadius: 16 },
+                  propsForDots: {
+                    r: "5",
+                    strokeWidth: "2",
+                    stroke: "#000000"
+                  }
+                }}
+                bezier // Makes the line curved and smooth
+                style={{
+                  marginVertical: 8,
+                  borderRadius: 16,
+                  marginLeft: -10, // Adjusts offset so the chart fits nicely
+                }}
+              />
             )}
           </View>
         </View>
@@ -200,7 +248,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000', // True OLED Black
+    backgroundColor: '#000000', 
   },
   scrollContent: {
     paddingHorizontal: 24,
@@ -208,44 +256,54 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   
-  // --- Header ---
-  header: {
+  // --- TARSI-STYLE HERO BANNER ---
+  heroBanner: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    backgroundColor: 'rgba(16, 185, 129, 0.08)', 
+    borderRadius: 32,
+    padding: 24,
     marginBottom: 40,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.15)', 
+  },
+  heroTextContent: {
+    flex: 1,
+    paddingRight: 16,
   },
   dateText: {
-    color: '#71717a',
-    fontSize: 13,
-    fontWeight: '600',
+    color: '#10b981', 
+    fontSize: 12,
+    fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   greetingText: {
     color: '#ffffff',
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '800',
     letterSpacing: -0.5,
+    marginBottom: 4,
   },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#111113',
-    borderWidth: 1,
-    borderColor: '#27272a',
+  heroSubtext: {
+    color: '#a1a1aa',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  mascotContainer: {
+    height: 110, 
+    aspectRatio: 572 / 641, 
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: {
-    color: '#10b981',
-    fontWeight: '800',
-    fontSize: 18,
+  mascotImage: {
+    width: '100%',
+    height: '100%',
   },
 
-  // --- Massive Balance Section ---
+  // --- BALANCE & BENTO SECTION ---
   balanceContainer: {
     marginBottom: 40,
   },
@@ -257,7 +315,7 @@ const styles = StyleSheet.create({
   },
   balanceAmount: {
     color: '#ffffff',
-    fontSize: 56, // Massive typography
+    fontSize: 56, 
     fontWeight: '900',
     letterSpacing: -2, 
     marginBottom: 16,
@@ -277,19 +335,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // --- Bento Grid ---
   bentoGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 40,
+    marginBottom: 32,
   },
   bentoCard: {
     flex: 1,
-    backgroundColor: '#0A0A0C', // Very dark grey
-    borderRadius: 28, // Modern squircle
+    backgroundColor: '#0A0A0C', 
+    borderRadius: 28, 
     padding: 20,
     borderWidth: 1,
-    borderColor: '#1F1F22', // Barely visible border
+    borderColor: '#1F1F22', 
     minHeight: 160,
     justifyContent: 'space-between',
   },
@@ -316,12 +373,11 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   bentoSubtext: {
-    color: '#10b981', // Accent color
+    color: '#10b981', 
     fontSize: 13,
     fontWeight: '700',
   },
 
-  // --- Analytics ---
   analyticsSection: {
     marginBottom: 32,
   },
@@ -329,50 +385,22 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 20,
     fontWeight: '800',
-    marginBottom: 20,
+    marginBottom: 16,
     letterSpacing: -0.5,
   },
-  analyticsCard: {
+  chartCard: {
     backgroundColor: '#0A0A0C',
-    padding: 24,
+    paddingVertical: 16,
+    paddingRight: 16,
     borderRadius: 32,
     borderWidth: 1,
     borderColor: '#1F1F22',
-  },
-  analyticsRow: {
-    marginBottom: 24,
-  },
-  analyticsTextRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    marginBottom: 12,
-  },
-  analyticsMonth: {
-    color: '#a1a1aa',
-    fontWeight: '600',
-    fontSize: 15,
-  },
-  analyticsAmount: {
-    color: '#ffffff',
-    fontWeight: '800',
-    fontSize: 16,
-  },
-  barBackground: {
-    height: 6, // Ultra thin sleek bars
-    backgroundColor: '#1F1F22',
-    borderRadius: 4,
     overflow: 'hidden',
-  },
-  barFill: {
-    height: '100%',
-    backgroundColor: '#ffffff', // High contrast white bars
-    borderRadius: 4,
   },
   emptyStateText: {
     color: '#71717a',
     fontStyle: 'italic',
     textAlign: 'center',
-    paddingVertical: 16,
+    paddingVertical: 32,
   },
 });

@@ -1,35 +1,47 @@
-import { drizzle } from "drizzle-orm/expo-sqlite";
-import { useMigrations } from "drizzle-orm/expo-sqlite/migrator";
-import { Slot } from "expo-router";
-import { openDatabaseSync } from "expo-sqlite";
-import { Text, View } from "react-native";
-import migrations from "../drizzle/migrations"; // Points to the folder generated in Step 4
-import "../global.css";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Stack } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, View } from 'react-native';
+import OnboardingScreen from './onboarding';
 
-// Open the local database
-const expoDb = openDatabaseSync("vapeshop.db");
-const db = drizzle(expoDb);
+export default function RootLayout() {
+  const [isFirstLaunch, setIsFirstLaunch] = useState<boolean | null>(null);
 
-export default function Layout() {
-  // Run migrations automatically on app start
-  const { success, error } = useMigrations(db, migrations);
+  useEffect(() => {
+    async function checkOnboarding() {
+      try {
+        const value = await AsyncStorage.getItem('@has_onboarded');
+        if (value === null) {
+          setIsFirstLaunch(true);
+        } else {
+          setIsFirstLaunch(false);
+        }
+      } catch (error) {
+        console.error('Error reading async storage', error);
+        setIsFirstLaunch(false); // Failsafe to main app
+      }
+    }
+    checkOnboarding();
+  }, []);
 
-  if (error) {
+  // Show a black loading screen while we check storage (takes milliseconds)
+  if (isFirstLaunch === null) {
     return (
-      <View className="flex-1 justify-center items-center bg-zinc-900">
-        <Text className="text-red-500 font-bold">Database Error: {error.message}</Text>
+      <View style={{ flex: 1, backgroundColor: '#000000', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#10b981" />
       </View>
     );
   }
 
-  if (!success) {
-    return (
-      <View className="flex-1 justify-center items-center bg-zinc-900">
-        <Text className="text-zinc-400">Loading database...</Text>
-      </View>
-    );
+  // If it's their first time, show the intro slider
+  if (isFirstLaunch) {
+    return <OnboardingScreen onFinish={() => setIsFirstLaunch(false)} />;
   }
 
-  // Once database is ready, render the app
-  return <Slot />;
+  // Otherwise, load your normal app tabs/stack
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="(tabs)" />
+    </Stack>
+  );
 }

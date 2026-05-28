@@ -1,13 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/expo-sqlite';
+import * as Sharing from 'expo-sharing';
 import { openDatabaseAsync } from 'expo-sqlite';
-import React, { useEffect, useState } from 'react';
-import { Alert, Platform, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { inventory, sales } from '../../src/db/schema'; // Ensure inventory is imported
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, Dimensions, Image, Platform, ScrollView, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import ViewShot from 'react-native-view-shot';
+import { inventory, sales } from '../../src/db/schema';
+
+const { width } = Dimensions.get('window');
+const STORY_WIDTH = width; // Keeps the width perfect for phones
 
 export default function SettingsScreen() {
   const [db, setDb] = useState<any | null>(null);
+  const [availableStocks, setAvailableStocks] = useState<any[]>([]);
+  const storyRef = useRef<ViewShot>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -16,6 +23,10 @@ export default function SettingsScreen() {
         const expoDb = await openDatabaseAsync('vapeshop.db');
         const d = drizzle(expoDb);
         if (mounted) setDb(d);
+        
+        // Pre-fetch stocks so the off-screen template is ready to be captured
+        const stocks = await d.select().from(inventory).where(sql`${inventory.stock} > 0`);
+        if (mounted) setAvailableStocks(stocks);
       } catch (e) {
         console.error('Failed to open database', e);
       }
@@ -23,45 +34,38 @@ export default function SettingsScreen() {
     return () => { mounted = false; };
   }, []);
 
-  // --- 1. Share Available Stocks Logic ---
-  const handleShareStocks = async () => {
+  // --- 1. Share Available Stocks (IMAGE EXPORT) ---
+  const handleShareStocksToStory = async () => {
     try {
-      if (!db) {
-        Alert.alert('Please wait', 'Database is still initializing. Try again in a moment.');
-        return;
-      }
-
-      // Query only items that actually have stock
-      const availableStocks: any[] = await db
-        .select()
-        .from(inventory)
-        .where(sql`${inventory.stock} > 0`);
-
-      if (availableStocks.length === 0) {
+      if (!db || availableStocks.length === 0) {
         Alert.alert('Out of Stock', 'You have no items available to share right now!');
         return;
       }
 
-      // Format the social media message
-      let shareMessage = `🔥 AVAILABLE STOCKS AT THE SHOP! 🔥\n\n`;
-      
-      availableStocks.forEach(item => {
-        shareMessage += `💨 ${item.name} (${item.category}) - ₱${item.price.toLocaleString()} (${item.stock} left)\n`;
-      });
+      // Briefly wait to ensure the ViewShot is fully rendered with all items
+      setTimeout(async () => {
+        if (storyRef.current && storyRef.current.capture) {
+          const uri = await storyRef.current.capture();
+          
+          const isSharingAvailable = await Sharing.isAvailableAsync();
+          if (isSharingAvailable) {
+            await Sharing.shareAsync(uri, {
+              dialogTitle: 'Share your stock list!',
+              mimeType: 'image/jpeg',
+            });
+          } else {
+            Alert.alert('Error', 'Sharing is not available on this device');
+          }
+        }
+      }, 300);
 
-      shareMessage += `\nDrop by the shop or send us a message to secure yours! 💯`;
-
-      await Share.share({
-        message: shareMessage,
-        title: 'Available Vape Stocks'
-      });
     } catch (error) {
-      Alert.alert('Share Failed', 'Could not prepare the stock data.');
+      Alert.alert('Share Failed', 'Could not prepare the image.');
       console.error(error);
     }
   };
 
-  // --- 2. Share to Social Media Milestone Logic ---
+  // --- 2. Share to Social Media Milestone Logic (TEXT EXPORT) ---
   const handleShareMilestone = async () => {
     try {
       if (!db) {
@@ -99,6 +103,49 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.container}>
+      
+      {/* 
+        OFF-SCREEN STORY TEMPLATE 
+        Changed to a standard View. It will automatically scale its height 
+        based entirely on how many items are in the array.
+      */}
+      <View style={styles.offScreenContainer}>
+        <ViewShot ref={storyRef} options={{ format: 'jpg', quality: 0.9 }} style={styles.storyTemplate}>
+          
+          <View style={styles.storyHeader}>
+            <View style={styles.storyMascotContainer}>
+              <Image 
+                source={require('../../assets/images/mascot.png')}
+                style={styles.storyMascotImage}
+                resizeMode="contain"
+              />
+            </View>
+            <Text style={styles.storyTitle}>FRESH DROPS &</Text>
+            <Text style={styles.storyTitleHighlight}>AVAILABLE STOCKS</Text>
+          </View>
+
+          {/* DYNAMIC 2-COLUMN GRID TO FIT ALL STOCKS */}
+          <View style={styles.storyStockList}>
+            {availableStocks.map((item, index) => (
+              <View key={index} style={styles.storyItemCard}>
+                <View style={styles.storyItemInfo}>
+                  <Text style={styles.storyItemName} numberOfLines={1} adjustsFontSizeToFit>{item.name}</Text>
+                  <Text style={styles.storyItemCategory}>{item.category}</Text>
+                </View>
+                <View style={styles.storyPriceTag}>
+                  <Text style={styles.storyItemPrice}>₱{item.price.toLocaleString()}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.storyFooter}>
+            <Text style={styles.storyFooterText}>DM TO SECURE YOURS 💨</Text>
+          </View>
+        </ViewShot>
+      </View>
+
+      {/* VISIBLE SETTINGS UI */}
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         
         <View style={styles.header}>
@@ -124,24 +171,22 @@ export default function SettingsScreen() {
           <Text style={styles.sectionTitle}>Social Media & Marketing</Text>
           <View style={styles.bentoCard}>
             
-            {/* NEW: Share Available Stocks Button */}
-            <TouchableOpacity style={[styles.row, styles.borderBottom]} onPress={handleShareStocks}>
+            <TouchableOpacity style={[styles.row, styles.borderBottom]} onPress={handleShareStocksToStory}>
               <View style={styles.rowLeft}>
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(59, 130, 246, 0.1)' }]}>
-                  <Ionicons name="pricetags" size={18} color="#3b82f6" />
+                  <Ionicons name="images" size={18} color="#3b82f6" />
                 </View>
-                <Text style={styles.rowText}>Post Available Stocks</Text>
+                <Text style={styles.rowText}>Export Stock Image</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#52525b" />
             </TouchableOpacity>
 
-            {/* Existing: Share Milestone Button */}
             <TouchableOpacity style={[styles.row, styles.borderBottom]} onPress={handleShareMilestone}>
               <View style={styles.rowLeft}>
                 <View style={[styles.iconBox, { backgroundColor: 'rgba(244, 63, 94, 0.1)' }]}>
                   <Ionicons name="share-social" size={18} color="#f43f5e" />
                 </View>
-                <Text style={styles.rowText}>Share Milestone</Text>
+                <Text style={styles.rowText}>Share Milestone (Text)</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#52525b" />
             </TouchableOpacity>
@@ -194,5 +239,104 @@ const styles = StyleSheet.create({
   rowLeft: { flexDirection: 'row', alignItems: 'center' },
   iconBox: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 16 },
   rowText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
-  rowValue: { color: '#a1a1aa', fontSize: 16, fontWeight: '700' }
+  rowValue: { color: '#a1a1aa', fontSize: 16, fontWeight: '700' },
+
+  // --- OFF-SCREEN STORY TEMPLATE STYLES ---
+  offScreenContainer: {
+    position: 'absolute',
+    left: -10000, 
+    width: STORY_WIDTH,
+  },
+  storyTemplate: {
+    width: STORY_WIDTH,
+    // NO fixed height or minHeight. It stretches dynamically based on content.
+    backgroundColor: '#0A0A0C', 
+    padding: 24,
+    borderWidth: 8,
+    borderColor: '#10b981', 
+  },
+  storyHeader: {
+    alignItems: 'center',
+    marginTop: 24,
+    marginBottom: 24,
+  },
+  storyMascotContainer: {
+    height: 100,
+    width: 100,
+    marginBottom: 16,
+  },
+  storyMascotImage: {
+    width: '100%',
+    height: '100%',
+  },
+  storyTitle: {
+    color: '#ffffff',
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: 2,
+    textAlign: 'center',
+  },
+  storyTitleHighlight: {
+    color: '#10b981',
+    fontSize: 36,
+    fontWeight: '900',
+    letterSpacing: 1,
+    textAlign: 'center',
+  },
+  storyStockList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap', 
+    justifyContent: 'space-between',
+    alignContent: 'flex-start',
+  },
+  storyItemCard: {
+    width: '48%', 
+    backgroundColor: '#111113',
+    padding: 12,
+    borderRadius: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#1F1F22',
+    justifyContent: 'space-between',
+  },
+  storyItemInfo: {
+    marginBottom: 12,
+  },
+  storyItemName: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  storyItemCategory: {
+    color: '#a1a1aa',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  storyPriceTag: {
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  storyItemPrice: {
+    color: '#10b981',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  storyFooter: {
+    backgroundColor: '#10b981',
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  storyFooterText: {
+    color: '#000000',
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: 1,
+  }
 });

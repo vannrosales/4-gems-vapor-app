@@ -3,19 +3,17 @@ import { drizzle } from 'drizzle-orm/expo-sqlite';
 import { openDatabaseSync } from 'expo-sqlite';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    RefreshControl // 1. Import RefreshControl
-    ,
-
-
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { inventory, sales } from '../../src/db/schema';
@@ -33,13 +31,19 @@ export default function LedgerScreen() {
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [quantity, setQuantity] = useState('1');
 
-  // 2. Add refreshing state
+  const [activeDates, setActiveDates] = useState<string[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Fetch sales and stock when the selected date changes
   useEffect(() => {
     fetchDataForDate(selectedDate);
     fetchStockItems();
   }, [selectedDate]);
+
+  // Fetch all dates with sales once on mount
+  useEffect(() => {
+    fetchActiveDates();
+  }, []);
 
   const fetchDataForDate = async (dateStr: string) => {
     const dayRecords = await db.select().from(sales).where(sql`date(${sales.createdAt}) = ${dateStr}`);
@@ -52,16 +56,25 @@ export default function LedgerScreen() {
     setStockItems(items);
   };
 
-  // 3. Create the onRefresh handler
+  // Queries the database for all distinct dates that have sales
+  const fetchActiveDates = async () => {
+    const records = await db
+      .select({ dateStr: sql<string>`date(${sales.createdAt})` })
+      .from(sales)
+      .groupBy(sql`date(${sales.createdAt})`);
+    
+    setActiveDates(records.map(r => r.dateStr));
+  };
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    // Fetch both stock and sales for the currently selected date concurrently
     await Promise.all([
       fetchDataForDate(selectedDate),
-      fetchStockItems()
+      fetchStockItems(),
+      fetchActiveDates()
     ]);
     setRefreshing(false);
-  }, [selectedDate]); // Re-create the function if the selected date changes
+  }, [selectedDate]);
 
   const handleSaveSale = async () => {
     if (!selectedItemId || !quantity) return;
@@ -78,7 +91,7 @@ export default function LedgerScreen() {
     }
 
     const totalAmount = selectedItem.price * qtyInt;
-    const saleNote = `${qtyInt}x ${selectedItem.name}`;
+    const saleNote = `${qtyInt}x ${selectedItem.name} ${selectedItem.category}`;
     const datetimeStr = `${selectedDate}T${new Date().toISOString().split('T')[1]}`;
 
     await db.update(inventory)
@@ -95,6 +108,27 @@ export default function LedgerScreen() {
     setQuantity('1');
     fetchDataForDate(selectedDate);
     fetchStockItems(); 
+    fetchActiveDates(); // Update the calendar dots after a sale
+  };
+
+  // Generate the marked dates object dynamically for the Calendar
+  const getMarkedDates = () => {
+    const marks: any = {};
+    
+    // Add dots to days with sales
+    activeDates.forEach(date => {
+      marks[date] = { marked: true, dotColor: '#10b981' };
+    });
+
+    // Style the currently selected date (merges with dot if one exists)
+    marks[selectedDate] = {
+      ...marks[selectedDate],
+      selected: true,
+      selectedColor: '#ffffff',
+      selectedTextColor: '#000000'
+    };
+
+    return marks;
   };
 
   return (
@@ -108,7 +142,6 @@ export default function LedgerScreen() {
           showsVerticalScrollIndicator={false} 
           keyboardShouldPersistTaps="handled" 
           contentContainerStyle={styles.scrollContent}
-          // 4. Attach RefreshControl to the ScrollView
           refreshControl={
             <RefreshControl 
               refreshing={refreshing} 
@@ -122,13 +155,22 @@ export default function LedgerScreen() {
           
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Ledger</Text>
+            
+            {/* Mascot placed dynamically in the header */}
+            <View style={styles.mascotContainer}>
+              <Image 
+                source={require('../../assets/images/mascot.png')}
+                style={styles.mascotImage}
+                resizeMode="contain"
+              />
+            </View>
           </View>
           
           <View style={styles.calendarContainer}>
             <Calendar
               current={selectedDate}
               onDayPress={(day: any) => setSelectedDate(day.dateString)}
-              markedDates={{ [selectedDate]: { selected: true, selectedColor: '#ffffff', selectedTextColor: '#000000' } }}
+              markedDates={getMarkedDates()}
               theme={{
                 calendarBackground: 'transparent',
                 textSectionTitleColor: '#71717a',
@@ -219,8 +261,22 @@ export default function LedgerScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   scrollContent: { paddingHorizontal: 24, paddingTop: Platform.OS === 'ios' ? 70 : 50, paddingBottom: 120 },
-  header: { marginBottom: 32 },
+  
+  // Header styles updated to accommodate mascot alignment
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 },
   headerTitle: { color: '#ffffff', fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+  
+  // Cleanly sized to fit your exact PNG aspect ratio while sitting neatly in the header
+  mascotContainer: {
+    height: 54, 
+    aspectRatio: 572 / 641, 
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mascotImage: {
+    width: '100%',
+    height: '100%',
+  },
   
   calendarContainer: { backgroundColor: '#0A0A0C', borderRadius: 28, padding: 12, borderWidth: 1, borderColor: '#1F1F22', marginBottom: 32 },
   
